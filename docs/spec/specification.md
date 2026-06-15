@@ -63,6 +63,9 @@ OpenBallistics/
 │   ├── src/androidMain/kotlin/    #   Android BLE, sensors
 │   ├── src/iosMain/kotlin/        #   iOS BLE, sensors
 │   └── build.gradle.kts
+├── cli/                           # CLI tool (JVM, consumes core)
+│   ├── src/main/kotlin/
+│   └── build.gradle.kts
 ├── android/                       # Android app
 │   ├── src/main/kotlin/
 │   ├── src/main/res/
