@@ -125,12 +125,24 @@ is copied — only mathematical formulas and physical models, which are not
 copyrightable. The resulting Kotlin code is an original work under Apache 2.0.
 
 **Testing strategy:**
-1. First run the original Python tests against py-ballisticcalc
-   to get a baseline of results (expected values)
-2. Export those expected values as fixtures (JSON)
-3. Port tests to Kotlin (commonTest) using the fixtures
-4. Port the engine to Kotlin; Kotlin tests verify correctness
-5. Python tests remain as a CI cross-check (separate pipeline job)
+1. Python fixture generator (`fixtures/generate.py`) uses py-ballisticcalc
+   as a permanent dev dependency to compute reference trajectories
+2. Fixtures generated **on-the-fly** during each `./gradlew test` run —
+   not committed to repo; each run uses a different random seed
+3. Combinatorial parameter space (~130k combinations) across 4 calibers
+   (.223 Rem to 800m, .308 Win to 1200m, 6.5 Creedmoor to 1200m,
+   .338 Lapua Mag to 2500m), wind (4 directions × 2 speeds), atmosphere,
+   slope, cant, Coriolis, twist, V0, and drag model variations
+4. 1000 random combinations sampled per run; 5 random distance checkpoints
+   per fixture (5000 trajectory comparisons total, <5s generation time)
+5. No zero/trivial parameter values — every fixture has non-trivial
+   conditions to ensure each parameter is actually exercised
+6. Kotlin parameterized tests load generated JSON and compare against
+   our engine within tolerances (≤0.5 cm drop/windage, ≤1 m/s velocity)
+7. On failure: seed printed to stdout → `FIXTURE_SEED=<N>` reproduces it
+8. Over time, random seeds statistically cover the entire parameter space
+9. Generator stays permanently as a regression safety net
+10. Aerodynamic jump tested separately (py-ballisticcalc does not implement it)
 
 ### 3.2 Physical Model
 
@@ -1631,7 +1643,14 @@ Based on GPS (phone or Garmin):
 - Map/weather from internet = nice to have, not a blocker
 
 ### 9.3 Accuracy
-- Validation vs. py-ballisticcalc test suite
+- Validation vs. py-ballisticcalc: 1000 random fixtures generated on-the-fly
+  per test run (different seed each time, reproducible via `FIXTURE_SEED`)
+- 4 calibers: .223 Rem (to 800m), .308 Win (to 1200m),
+  6.5 Creedmoor (to 1200m), .338 Lapua Mag (to 2500m)
+- Combinatorial sampling across wind (4 dirs × 2 speeds), atmosphere,
+  slope, cant, Coriolis, twist, V0, drag model — no trivial/zero values
+- 5 random distance checkpoints per fixture (5000 comparisons per run)
+- Initial tolerances: ≤0.5 cm drop/windage, ≤1 m/s velocity, ≤0.005 s TOF
 - Validation vs. Sierra/Berger tables (public)
 - Target: <0.5% / <0.2 MOA vs. reference calculators at 1000m
 
