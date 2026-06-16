@@ -23,5 +23,6 @@ dependencyResolutionManagement {
 rootProject.name = "OpenBallistics"
 
 include(":core")
+include(":cli")
 include(":android")
 include(":android:emulator")

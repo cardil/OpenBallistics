@@ -1,0 +1,171 @@
+package org.openballistics.engine
+
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.Json
+import org.openballistics.model.*
+import org.openballistics.units.*
+import kotlin.math.abs
+import kotlin.test.Test
+import kotlin.test.assertTrue
+import kotlin.test.fail
+
+@Serializable
+data class FixtureFile(val seed: Int, val fixtures: List<Fixture>)
+
+@Serializable
+data class Fixture(val id: Int, val caliber: String, val inputs: FixtureInputs, val checkpoints: List<Checkpoint>)
+
+@Serializable
+data class FixtureInputs(
+    val bc: Double,
+    val drag_model: String,
+    val bullet_weight_grains: Double,
+    val bullet_diameter_mm: Double,
+    val bullet_length_mm: Double,
+    val muzzle_velocity_mps: Double,
+    val zero_distance_m: Double,
+    val sight_height_mm: Double,
+    val twist_inches: Double,
+    val twist_direction: String,
+    val temperature_c: Double,
+    val pressure_hpa: Double,
+    val humidity_pct: Double,
+    val altitude_m: Double,
+    val wind_clock: Int,
+    val wind_speed_mps: Double,
+    val slope_deg: Double,
+    val cant_deg: Double,
+    val latitude_deg: Double,
+    val azimuth_deg: Double
+)
+
+@Serializable
+data class Checkpoint(
+    val distance_m: Double,
+    val drop_cm: Double,
+    val windage_cm: Double,
+    val velocity_mps: Double,
+    val time_s: Double
+)
+
+class FixtureTest {
+
+    private val json = Json { ignoreUnknownKeys = true }
+
+    private fun loadFixtures(): FixtureFile? {
+        val resource = this::class.java.getResourceAsStream("/fixtures.json") ?: return null
+        val content = resource.bufferedReader().readText()
+        return json.decodeFromString<FixtureFile>(content)
+    }
+
+    private fun fixtureToInput(f: FixtureInputs, maxDistance: Double): BallisticInput {
+        val dragModel = if (f.drag_model == "G7") DragModel.G7 else DragModel.G1
+        val twistDir = if (f.twist_direction == "RH") TwistDirection.RIGHT_HAND else TwistDirection.LEFT_HAND
+
+        return BallisticInput(
+            zeroDistance = Distance(f.zero_distance_m),
+            zeroAtmosphere = Atmosphere.STANDARD,
+            sightHeight = Distance.fromMillimeters(f.sight_height_mm),
+            twistRate = TwistRate(f.twist_inches, TwistRateUnit.INCHES, twistDir),
+            barrelLength = null,
+            dragModel = dragModel,
+            bulletBC = BallisticCoefficient.Single(f.bc, dragModel),
+            bulletWeight = Mass.fromGrains(f.bullet_weight_grains),
+            bulletDiameter = Distance.fromMillimeters(f.bullet_diameter_mm),
+            bulletLength = Distance.fromMillimeters(f.bullet_length_mm),
+            muzzleVelocity = Speed(f.muzzle_velocity_mps),
+            targetDistance = Distance(maxDistance),
+            slope = Angle.fromDegrees(f.slope_deg),
+            cant = Angle.fromDegrees(f.cant_deg),
+            windZones = listOf(
+                WindZone(
+                    rangeStart = Distance.ZERO,
+                    rangeEnd = Distance(maxDistance),
+                    direction = ClockDirection(f.wind_clock),
+                    sustained = Speed(f.wind_speed_mps),
+                    gusts = Speed(f.wind_speed_mps),
+                    source = DataSource.MANUAL
+                )
+            ),
+            atmosphere = AtmosphericData(
+                temperature = Temperature(f.temperature_c),
+                pressure = Pressure(f.pressure_hpa),
+                humidity = Percentage.fromPercent(f.humidity_pct),
+                altitude = Distance(f.altitude_m)
+            ),
+            latitude = Angle.fromDegrees(f.latitude_deg),
+            azimuth = Angle.fromDegrees(f.azimuth_deg)
+        )
+    }
+
+    @Test
+    fun fixtureVelocityWithinTolerance() {
+        val fixtureFile = loadFixtures()
+        if (fixtureFile == null) {
+            println("fixtures.json not found, skipping fixture tests")
+            return
+        }
+
+        println("FIXTURE_SEED=${fixtureFile.seed}")
+        val velocityTolerance = 0.01
+        val tofTolerance = 0.00005
+        val dropTolerance = 0.01
+        val windageTolerance = 0.01
+
+        var totalCheckpoints = 0
+        val failures = mutableMapOf("velocity" to 0, "tof" to 0, "drop" to 0, "windage" to 0)
+        val failureDetails = mutableListOf<String>()
+
+        for (fixture in fixtureFile.fixtures) {
+            val maxDist = fixture.checkpoints.maxOf { it.distance_m }
+            val input = fixtureToInput(fixture.inputs, maxDist)
+
+            val solver = TrajectorySolver(input)
+            val zeroAngle = solver.findZeroAngle(input.zeroDistance)
+            val trajectory = solver.computeTrajectory(Distance(maxDist), Distance(1.0), zeroAngle)
+
+            for (cp in fixture.checkpoints) {
+                totalCheckpoints++
+
+                val nearest = trajectory.minByOrNull { abs(it.distance.meters - cp.distance_m) }
+                if (nearest == null || abs(nearest.distance.meters - cp.distance_m) > 2.0) {
+                    continue
+                }
+
+                fun check(field: String, got: Double, expected: Double, tolerance: Double) {
+                    val diff = abs(got - expected)
+                    if (diff > tolerance) {
+                        failures[field] = (failures[field] ?: 0) + 1
+                        if (failureDetails.size < 15) {
+                            failureDetails.add(
+                                "F${fixture.id}(${fixture.caliber})@${cp.distance_m}m $field: " +
+                                    "exp=${"%.4f".format(expected)} got=${"%.4f".format(got)} Δ=${"%.4f".format(diff)}"
+                            )
+                        }
+                    }
+                }
+
+                check("velocity", nearest.velocity.metersPerSecond, cp.velocity_mps, velocityTolerance)
+                val tofSec = nearest.timeOfFlight.toDouble(kotlin.time.DurationUnit.SECONDS)
+                check("tof", tofSec, cp.time_s, tofTolerance)
+                check("drop", nearest.drop.centimeters, cp.drop_cm, maxOf(dropTolerance, abs(cp.drop_cm) * 0.02))
+                check("windage", nearest.windage.centimeters, cp.windage_cm, maxOf(windageTolerance, abs(cp.windage_cm) * 0.02))
+            }
+        }
+
+        println("Total checkpoints: $totalCheckpoints")
+        failures.forEach { (k, v) -> println("  $k failures: $v") }
+
+        if (failureDetails.isNotEmpty()) {
+            println("\nFirst failures:")
+            failureDetails.forEach { println("  $it") }
+        }
+
+        val totalFailures = failures.values.sum()
+        val totalChecks = totalCheckpoints * 4
+        assertTrue(
+            totalFailures == 0,
+            "$totalFailures of $totalChecks checks failed (${failures})"
+        )
+    }
+}
