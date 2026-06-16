@@ -382,18 +382,41 @@ Bottom Nav:
 │    SF: 1.65 🟢                   │  ← stability factor (color per threshold)
 │                    [🔭 Scope]    │  ← scope view (v1.1, hidden in MVP)
 ├──────────────────────────────────┤
-│ Distance:  [  850 m  ] [+][-][Auto]  ← Auto → map (v1.2)
-│ Slope:     [  +3.2°  ]      [Auto]  ← Auto → slope from camera (v1.2)
-│ Cant:      [   0.0°  ]      [Auto]  ← Auto → phone inclinometer (v1.2)
+│ Distance:  [  850 m  ] [+][-][🪄]  ← 🪄 → map (v1.2)
+│ Slope:     [  +3.2°  ]      [🪄]  ← 🪄 → slope from camera (v1.2)
+│ Cant:      [   0.0°  ]      [🪄]  ← 🪄 → phone inclinometer (v1.2)
 ├──────────────────────────────────┤
 │ Wind Zone 1 [sensor ●]           │
 │   5:00  sustained: 3.2 m/s       │
 │         gusts:     4.8 m/s       │
 │ [+ Add zone]                     │
 ├──────────────────────────────────┤
-│ Atmosphere [auto ●]              │
+│ Atmosphere [🪄 ●]                │
 │  18°C  1013 hPa  45%  320m       │
 ├──────────────────────────────────┤
+│ Coriolis [🪄]                    │
+│  Lat: 52.2°N  Az: 270°           │
+├──────────────────────────────────┤
+│ [Range Card] [Charts]            │
+├──────────────────────────────────┤
+│ 🏁 II Runda PPLRS, Zielonka      │  ← active session (tap → edit)
+│ Seria 3: oceniana  ⏱ 9:32 [⏸]   │  ← timer + pause/start
+└──────────────────────────────────┘
+```
+
+Tapping the session section opens the series editor (session name,
+series type, time limit, notes, end session). The main screen shows
+only the essentials: session name, current series info, and the
+timer with a single Start/Pause/Resume button.
+
+After a series completes (Stop or timer reaches 0), the series name
+and type are cleared after 10 minutes of inactivity — the next series
+starts fresh. Session name and range persist until explicitly ended.
+
+When no session is active, the bottom section shows:
+```
+├──────────────────────────────────┤
+│ [🏁 Nowa sesja]                  │  ← starts a new session
 │ [Range Card] [Charts]            │
 └──────────────────────────────────┘
 ```
@@ -405,15 +428,17 @@ Sako TRG, not for AR-10). Select weapon → then ammunition within it.
 **V0** — displayed with ammunition, interpolated from the temp→V0 table.
 ⚠ icon when value is a manufacturer estimate (see 4.6.3).
 
-**Auto buttons** — lead to helpers:
-- Distance Auto → map screen with pins (v1.2)
-- Slope Auto → phone camera with crosshair + level (v1.2)
-- Cant Auto → inclinometer from phone accelerometer
+**🪄 buttons** (magic wand icon, like Photoshop) — lead to helpers:
+- Distance 🪄 → map screen with pins (v1.2)
+- Slope 🪄 → phone camera with crosshair + level (v1.2)
+- Cant 🪄 → inclinometer from phone accelerometer
+- Coriolis 🪄 → latitude from GPS, azimuth from phone compass
 
 **Interactions:**
-- Distance: +/- buttons, manual entry, or Auto (map)
+- Distance: +/- buttons, manual entry, or 🪄 (map)
 - Wind: per zone — manual, from internet, from BLE sensor, stream from sensor
 - Atmosphere: manual, from internet (GPS → weather), from sensor, from watch
+- Coriolis: manual entry (latitude + azimuth), or 🪄 (GPS + compass)
 - Range Card: correction table every N meters (configurable step)
 - Charts: drop, velocity, energy vs. distance
 
@@ -481,7 +506,19 @@ Selecting a competition or range → list of sessions grouped by date.
 
 #### 4.5.2 Shooting Session (ShootingSession)
 
-"Save current session" button — saves the current session.
+A session represents a multi-day event (competition) or a range visit.
+The shooter creates a session once and adds shot strings to it over time.
+Sessions are **live objects** — they are created on the Shoot screen,
+not saved after the fact.
+
+**Session lifecycle:**
+1. "Nowa sesja" on Shoot screen → fill: competition, range, location
+2. Session is now **active** — shown on Shoot screen with "Następna seria"
+3. Each "Następna seria" adds a `ShotString` with timer
+4. Session can stay active across days (multi-day competition)
+5. "Zakończ sesję" closes it — moves to History as read-only
+
+Only one session can be active at a time.
 
 ```
 ShootingSession {
@@ -489,8 +526,8 @@ ShootingSession {
   range: String                  // shooting range: "Zielonka", "Orzysz"
   competition: String?           // competition: "Puchar Polski 2025", null = training
   description: String?           // additional description
-  timestamp: DateTime
-  duration: Duration             // auto-suggested
+  createdAt: DateTime            // when session was created
+  closedAt: DateTime?            // when session was closed (null = active)
   location: GpsCoordinates?      // suggested from GPS
   notes: String?
 
@@ -498,82 +535,124 @@ ShootingSession {
   // later truing/profile edits do not change historical data)
   profile: RifleProfile          // deep copy; profile.ammunition contains
                                  // ONLY the ammunition used in the session
-  atmosphere: AtmosphericData
-  slope: Angle?
-  cant: Angle?
-  latitude: Angle?
-  azimuth: Angle?
-  windRange: WindRange
-  correctionRange: CorrectionRange
-  parameterHistory: List<ParameterChange>?
-
   // Shot strings
   strings: List<ShotString>
 }
-
-WindRange {
-  minSustained: Speed
-  maxSustained: Speed
-  minGusts: Speed
-  maxGusts: Speed
-  directions: Set<ClockDirection>
-}
-
-CorrectionRange {
-  elevationMin: AngularValue
-  elevationMax: AngularValue
-  windageMin: AngularValue
-  windageMax: AngularValue
-}
-
-ParameterChange {
-  timestamp: DateTime
-  parameter: String              // "distance", "windZone1.sustained", ...
-  oldValue: String
-  newValue: String
-}
 ```
+
+**Computed from strings (not stored separately):**
+- `WindRange` (min/max sustained/gusts, directions across all strings)
+- `CorrectionRange` (elevation/windage min/max across all strings)
+- `duration` (sum of actualDuration across all strings)
+
+#### 4.5.2.1 "Następna seria" Flow
+
+From the Shoot screen (active session):
+1. Tap "Następna seria" → pre-filled form:
+   - Distance: current calculator distance (editable)
+   - Type: scored / sighters / training (autocomplete from session)
+   - Time limit: picker (common presets: 3, 5, 10, 15 min + custom)
+2. Confirm → string created with status `in_progress`, timer section
+   appears on Shoot screen
+3. **▶ Start** → timer counts down, `startedAt` recorded
+4. **⏸ Pause** → timer stops (cease fire, animal on range).
+   `pauseCount` incremented. Calculator remains functional.
+5. **▶ Resume** → timer continues
+6. **⏹ Stop** → string status → `completed`, post-series screen
+   (optional: mark target, enter applied corrections, notes)
+7. Timer reaches 0 → vibration/sound alert, string auto-completed
+
+The timer does not block the calculator — the shooter can change wind,
+distance, etc. while the timer runs. **All parameter changes during a
+running series are recorded in `parameterLog`** (black box). This includes
+distance, wind (direction, speed, gusts), atmosphere, slope, cant — every
+change with a timestamp.
+
+**Quick correction filter:** if two entries changing the same field appear
+within a short interval (e.g. distance 592→850 in 3 seconds), the first
+is marked as a correction (likely a typo). The threshold is configurable in Settings (default: 5 seconds).
+On PRS/tactical matches the threshold should be lowered or disabled (0)
+because distance changes can be rapid and intentional. The filter only
+affects analysis views — the raw log always retains all snapshots.
+
+**Change sources:**
+- `manual` — user changed a parameter (distance, wind, etc.).
+  Typically one field per entry.
+- `sensor` — BLE sensor pushed new data (Kestrel, Calypso, WeatherFlow,
+  Garmin barometer). One entry with all changed fields from the push.
+
+**Post-series analysis** (computed from parameterLog):
+- Distance breakdown: which distances were engaged, time spent at each
+- Wind heat map: direction distribution (e.g. 70% from 2, 10% from 1...),
+  speed range (min–max sustained/gusts)
+- Condition timeline: how atmosphere/wind changed over the series
+- Correction history: what the engine recommended at each moment
 
 #### 4.5.3 Session View
 
 Entering a session shows:
 
-**Header:** range, competition, date, duration
+**Header:** range, competition, dates, total duration (computed)
 
-**Session parameters (read-only snapshot):**
+**Session summary (computed from strings):**
 - Weapon + ammunition, V0, SF
 - Wind range (min–max sustained/gusts, directions)
 - Correction range (elevation min–max, windage min–max)
-- Atmosphere: temp, pressure, humidity, altitude
-- Slope, cant, Coriolis (if used)
+- Conditions spread across strings (atmosphere, slope, Coriolis)
 
-**Shot string table** — each string has a type:
+**Shot string table:**
 ```
-┌─────┬──────────┬───────────┬────────────┬────────────┬───────┐
-│  #  │ Distance │ Type      │ Elevation  │ Windage    │ Target│
-├─────┼──────────┼───────────┼────────────┼────────────┼───────┤
-│  1  │  300m    │ sighters  │ ↑1.1 mrad  │ ←0.4 mrad  │   📷  │
-│  2  │  300m    │ scored    │ ↑1.1 mrad  │ ←0.5 mrad  │   📷  │
-│  3  │  600m    │ sighters  │ ↑2.3 mrad  │ ←1.0 mrad  │   🎯  │
-│  4  │  600m    │ scored    │ ↑2.4 mrad  │ ←1.1 mrad  │   📷  │
-└─────┴──────────┴───────────┴────────────┴────────────┴───────┘
+┌─────┬───────────────┬──────────┬───────┬───────┐
+│  #  │ Distance      │ Type     │ Timer │Target │
+├─────┼───────────────┼──────────┼───────┼───────┤
+│  1  │  300m         │ sighters │  3:00 │  📷  │
+│  2  │  300m         │ scored   │ 10:00 │  📷  │
+│  3  │  600m         │ sighters │  3:00 │  🎯  │
+│  4  │  600m         │ scored   │ 10:00 │  📷  │
+│  5  │  300,600,800m │ scored   │ 20:00 │  📷  │  ← multi-distance
+└─────┴───────────────┴──────────┴───────┴───────┘
 ```
 
 String type (not session type) — because a single session can have both sighters and scored strings.
+Timer column shows the time limit for the string.
 
 #### 4.5.4 Shot String (ShotString)
 
 ```
 ShotString {
   index: Int
-  distance: Distance
+  startDistance: Distance          // distance at series start (from calculator)
+  // Additional distances are captured automatically in parameterLog
+  // when the shooter changes distance during the series.
+  // Computed: distances() → unique distances from parameterLog
+  // Examples: single-distance (300m), multi-distance F-Class (300,600,800m),
+  // tactical PRS (unknown beforehand, entered live from rangefinder)
   stringType: scored | sighters | training
-  appliedElevation: AngularValue  // corrections the shooter actually dialed
-  appliedWindage: AngularValue
-  calculatedElevation: AngularValue  // correction calculated by the engine at shot time
-  calculatedWindage: AngularValue
+  status: in_progress | paused | completed
   shotCount: Int
   notes: String?
+
+  // Timer
+  timeLimit: Duration             // series time limit (e.g. 10 min)
+  startedAt: DateTime             // when ▶ Start was pressed
+  actualDuration: Duration        // actual elapsed time (excluding pauses)
+  pauseCount: Int                 // how many times paused (0 = uninterrupted)
+
+  // Initial state — snapshot of all parameters at series start.
+  // This is the baseline for parameterLog (log records only changes,
+  // full state at any point = initial state + log replay).
+  atmosphere: AtmosphericData
+  slope: Angle?
+  cant: Angle?
+  latitude: Angle?
+  azimuth: Angle?
+  windZones: List<WindZone>
+
+  // Black box — records only changed parameters during a running
+  // series. Sensor batch updates produce one entry with multiple
+  // fields. Manual changes produce one entry with one field.
+  // Full state at time T = initial fields above + replay log up to T.
+  parameterLog: List<ParameterChange>
 
   // Target — one of two:
   targetMode: VirtualTarget | PhotoTarget  // sealed class — implementation: VirtualTarget or PhotoTarget
@@ -582,6 +661,22 @@ ShotString {
   // Velocities (optional)
   velocities: List<Speed>?       // per shot, from Xero C1 or manual entry
 }
+
+ParameterChange {
+  timestamp: DateTime
+  source: manual | sensor          // what triggered the change
+  values: Map<String, String>      // only changed fields → new value
+  // Key examples: "distance", "windZone1.sustained", "windZone1.clock",
+  //   "atmosphere.temp", "atmosphere.pressure", "slope"
+  // Sensor batch (e.g. Kestrel push) → one entry, multiple keys:
+  //   {"atmosphere.temp": "18", "atmosphere.pressure": "1013",
+  //    "windZone1.sustained": "3.5", "windZone1.clock": "4"}
+  // Manual change → one entry, one key:
+  //   {"distance": "850"}
+  // Delta computed by comparing with previous entry for same key.
+}
+
+
 ```
 
 ```
@@ -670,7 +765,7 @@ RifleProfile {
   name: String                   // "Sako TRG 42 .308"
   zeroDistance: Distance          // 100m
   zeroAtmosphere: AtmosphericData // conditions at zeroing (required;
-                                  // "Auto" button fetches current conditions)
+                                  // 🪄 button fetches current conditions)
   sightHeight: Distance          // mm (manual or from photo measurement)
   twistRate: TwistRate           // 1:11", RH
   barrelLength: Distance?         // 660mm (optional; required for photo sight height)
@@ -861,10 +956,17 @@ Settings {
 
   display: DisplaySettings {
     correctionFormat: angular | clicks | both
+    correctionStyle: arrows | udlr
+      // arrows: ↑ 3.5 mrad  ← 1.2 mrad
+      // udlr:   U 3.5 mrad  L 1.2 mrad
     clickDisplayMode: precise | nominal  // precise = actual click value,
                                          // nominal = nominal (from turret)
     rangeCardStep: Distance       // 25m / 50m / 100m
     calculationMode: auto | manual
+    quickCorrectionThreshold: Duration  // 5s default; parameter changes
+                                        // within this interval are marked
+                                        // as corrections (typos) in analysis;
+                                        // 0 = disabled (PRS/tactical)
   }
 }
 ```
@@ -960,19 +1062,31 @@ MIP display — always-on via `onPartialUpdate()` (30ms limit).
 Main screen shows **minimum information** in large font:
 
 ```
-┌─────────────────────────┐
-│ ➘                       │  ← direction arrow on perimeter
-│       ↑ 3.5 mrad        │  ← elevation, large font
-│       ← 1.2 mrad        │  ← windage (sustained)
-│                         │
-│         gusts:          │
-│  ↑ 3.5 mrad ← 1.8 mrad  │  ← gusts correction (smaller font)
-│                         │
-│  wind:   3.2 m/s        │  
-│  gusts:  4.2 m/s        │    + sustained and gusts speed
-│                         │
-└─────────────────────────┘
+        ╭─────────────╮
+       ╱    12         ╲
+     ╱   ➘               ╲        ← wind direction arrow on the
+    │ 9    ↑ 3.5 mrad   3 │         round screen perimeter,
+    │      ← 1.2 mrad     │         at the clock position of
+    │                      │         the active zone's wind
+    │      gusts:          │
+    │  ↑3.5  ←1.8 mrad    │
+     ╲                   ╱
+      ╲  ⚡Z2 3.2/4.2  ╱          ← active zone + sustained/gusts
+        ╰─────⏱ 9:32──╯           ← series timer (when active)
+              6
 ```
+
+The round display uses the screen perimeter as a clock face. The wind
+direction arrow sits on the perimeter at the clock position matching
+the active zone's wind direction (e.g. arrow at 5 o'clock pointing
+inward = wind from 5 o'clock). This mirrors the clock picker used in
+wind zone editing (see §5.5.1).
+
+**Wind display:** the main screen shows wind data for the **active zone**
+(see Quick Wind Control below). The ballistic correction (elevation,
+windage) always accounts for **all zones** — the solver integrates the
+full trajectory through every zone. The active zone is only which zone
+is displayed and controlled from the main screen.
 
 Buttons/touch → navigate to details and editing (see 5.5).
 
@@ -981,30 +1095,116 @@ Garmin displays mrad on the main screen. Clicks available in the Details menu. F
 ### 5.5 Watch Interactions
 
 **Buttons (5 buttons):**
-- **UP/DOWN**: quick wind change (sustained +/- 0.5 m/s)
-- **ENTER**: action menu (details and editing of all parameters)
+- **UP/DOWN**: scroll (default) or quick wind change (when Quick Wind ON)
+- **ENTER**: action menu
+- **ENTER long press**: shortcut to active wind zone editor (skip menu)
 - **MENU** (long press): settings, profiles
 - **BACK**: back
-- **LIGHT**: backlight (system)
+- **LIGHT**: backlight (system, not interceptable by ConnectIQ)
+
+**Touch (Tactix 7/8, Fenix 8):**
+- Tap wind section on main screen → active wind zone editor directly
+- Swipe up/down → scroll (same as UP/DOWN buttons)
+
+**Quick Wind Control** (opt-in, OFF by default):
+
+When enabled in watch settings, UP/DOWN on the main screen changes the
+sustained wind speed of the active zone by ±0.5 m/s. When disabled,
+UP/DOWN behaves as standard Garmin scroll.
+
+Active zone selection:
+- **auto** (default): first zone with source = manual (skips sensor-fed
+  zones). Typical setup: zone 1 near (sensor) + zone 2 far (manual) →
+  active = zone 2.
+- **manual override**: user picks a specific zone in watch settings.
+- Single-zone setup: that zone is always active.
+
+When Quick Wind is ON, the main screen shows `⚡Z2` (or `⚡Z1` etc.)
+to indicate which zone UP/DOWN controls. When OFF, the zone number is
+shown without ⚡.
+
+First launch prompt: "Enable quick wind control? UP/DOWN will change
+wind speed on the main screen." User can skip — configurable later
+in settings.
+
+**Watch display settings** are independent from phone settings. The watch
+has its own correction unit and style — a shooter may prefer clicks on the
+watch (quick turret adjustment) and mrad on the phone (detailed analysis).
+Defaults are synced from phone on first pairing, then independent.
 
 **Menu (ENTER):**
 ```
-├── Distance (manual entry, picker)
-├── Wind
+├── Wind                                ← first item for fast access
 │   ├── Zone 1: direction + sustained + gusts
 │   ├── Zone 2: ...
 │   └── [+ Add zone]
-├── Profile (weapon + ammunition)
+├── Serie ▶ Start / ⏸ Pause / ⏹ Stop   ← series timer control
+├── Distance (manual entry, picker)
 ├── Atmosphere (auto from barometer / manual)
+├── Coriolis
+│   ├── Latitude (manual / 🪄 GPS)
+│   └── Azimuth (manual / 🪄 compass)
 ├── Slope (manual)
 ├── Cant (manual)
+├── Profile (weapon + ammunition)
 ├── Details (V0, velocity at target, TOF, drop, clicks)
+├── Settings
+│   ├── Quick Wind Control: OFF / ON
+│   ├── Active Zone: auto / Zone 1 / Zone 2 / ...
+│   ├── Correction Unit: mrad / MOA / clicks
+│   └── Correction Style: arrows / U·D·L·R
 └── Sync with phone
 ```
 
-UP/DOWN on the main screen = quick wind change, because that's the parameter that
-changes most often during a competition. Distance changes less often —
-going into the menu is acceptable.
+Wind is the first menu item — on button-only watches the fast path to
+the active zone is: Enter → Enter (Wind) → Enter (active zone) = 3 presses.
+Long press Enter is even faster — goes directly to the active zone editor.
+
+UP/DOWN for wind is opt-in because it overrides standard Garmin scroll
+behavior. Wind is the parameter that changes most often during a
+competition — hence the shortcut. Distance changes less often — going
+into the menu is acceptable.
+
+#### 5.5.1 Wind Direction Clock Picker
+
+Editing a wind zone's direction uses a circular clock picker:
+
+```
+        ╭─────────────╮
+       ╱    12         ╲
+     ╱                   ╲
+    │ 9      ➘        3   │     ← arrow at current direction
+    │                      │       pointing inward (= wind FROM)
+     ╲                   ╱
+      ╲     6          ╱
+        ╰─────────────╯
+```
+
+- The round screen displays clock positions 1-12 on the perimeter
+- An arrow at the current position points inward (wind blows FROM
+  that direction toward the shooter)
+- **UP/DOWN**: rotate arrow to next/previous clock position (cycles
+  1→2→...→12→1)
+- **Touch**: tap a clock position directly, or swipe up/down to rotate
+- **ENTER**: confirm direction, return to zone editor
+- Wind zone editor order: direction (first) → sustained → gusts
+
+#### 5.5.2 Series Timer on Watch
+
+When a series is active (started from phone or watch menu), the main
+screen shows a countdown timer `⏱ 9:32` at the bottom of the display.
+
+**Timer states on watch:**
+- No active series → timer hidden, menu shows "Serie ▶ Start"
+- Running → timer counts down, menu shows "Serie ⏸ Pause" and "Serie ⏹ Stop"
+- Paused → timer blinks/dimmed, menu shows "Serie ▶ Resume" and "Serie ⏹ Stop"
+- Timer reaches 0 → vibration alert, timer shows `0:00`, auto-completed
+
+The timer is synced via BLE — starting/pausing/stopping from either
+phone or watch is reflected on both devices.
+
+Series control is the second menu item (after Wind): Enter → Down →
+Enter = 3 presses.
 
 ### 5.6 BLE Protocol (Watch ↔ Phone)
 
@@ -1058,12 +1258,24 @@ Conversion to MOA on the displaying side.
 // Watch → Phone: barometer from Garmin (with humidity and altitude)
 {"cmd": "atmosphere", "pressure": 1013, "temp": 18, "humidity": 45, "altitude": 320}
 
+// Series timer control (bidirectional — either side can control)
+// Watch → Phone or Phone → Watch:
+{"cmd": "seriesStart", "timeLimit": 600}     // start timer (600s = 10 min)
+{"cmd": "seriesPause"}
+{"cmd": "seriesResume"}
+{"cmd": "seriesStop"}
+
+// Phone → Watch: timer sync (sent periodically and on state change)
+{"cmd": "seriesSync", "remaining": 572, "state": "running"}
+// state: running | paused | completed
+// remaining: seconds left
+
 // Error handling
 // Phone → Watch: error
 {"cmd": "error", "code": "NO_PROFILE", "msg": "No profile loaded"}
 {"cmd": "error", "code": "SOLVE_FAILED", "msg": "Calculation error"}
 
-// Error codes: NO_PROFILE, NO_AMMO, SOLVE_FAILED, UNKNOWN_CMD
+// Error codes: NO_PROFILE, NO_AMMO, SOLVE_FAILED, NO_SESSION, UNKNOWN_CMD
 // On BLE connection loss the watch displays last known data
 // with a ⚠ "BLE disconnected" icon. Automatic reconnect.
 ```
@@ -1238,7 +1450,9 @@ Import to `AmmunitionProfile`: `v0_fps` → `VelocityEntry(temperature=20°C, ve
 - Data: wind speed, direction (meteorological degrees 0-360°)
 - Ref: signalk-calypso-ultrasonic (open-source)
 - Conversion to clock: `clock = round(((windDegrees - shooterAzimuth + 180) mod 360) / 30); if clock == 0 then clock = 12`
-  (requires shooter azimuth from compass/GPS/manual)
+  (requires shooter azimuth — sourced from: Coriolis azimuth field on Shoot
+  screen if set, otherwise phone compass, otherwise Garmin compass via BLE,
+  otherwise manual entry. Same value used for both Coriolis and wind conversion.)
 
 **WeatherFlow Tempest:**
 - BLE GATT + UDP broadcast + REST API
@@ -1310,7 +1524,7 @@ Based on GPS (phone or Garmin):
 - [ ] Custom handloads (brass, primer, powder + charge weight, bullet)
 
 **Garmin terminal:**
-- [ ] Device App, multi-device (Tier 1 + Tier 2)
+- [ ] Device App, Tier 1 devices (Tier 2 after stabilization)
 - [ ] Main screen always-on (elevation, windage, clicks, distance, wind)
 - [ ] Wind change (UP/DOWN = sustained +/- 0.5 m/s; menu: direction + gusts)
 - [ ] Distance change (via menu, picker)
@@ -1424,7 +1638,7 @@ Based on GPS (phone or Garmin):
 ### 9.4 Privacy
 - No telemetry, no user accounts
 - All data local on device by default
-- Profile export/import as files (JSON)
+- Profile export/import as files (TOML — human-editable, shared with CLI)
 - Cloud sync (v1.1) — opt-in, see §9.8
 
 ### 9.5 Calculation Mode
@@ -1473,6 +1687,8 @@ not on our servers. No OpenBallistics accounts.
 
 - Import/export profiles from competitor formats (Strelok, AB)
 - Xero C1 integration (velocity import)
+- BLE rangefinder integration (Sig Kilo, Leica, Vectronix) — auto-feed
+  distance, azimuth, slope to calculator
 - Shot hole recognition from photo (CV/AI)
 - WearOS / Apple Watch terminal
 - Internal ballistics calculator (pressure, burn rate — inspired by GRT)
