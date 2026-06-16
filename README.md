@@ -20,7 +20,7 @@ OpenBallistics is a system consisting of:
 - Shot history with series timer, parameter logging and group analysis
 - Range card and trajectory charts
 - BLE integration with wind sensors (Calypso, WeatherFlow)
-- Garmin watch terminal with always-on display and wind control
+- Smartwatch terminal with full parameter control (Garmin ConnectIQ; WearOS, Apple Watch planned)
 - CLI tool for scripting and power users
 
 ## Tech Stack
