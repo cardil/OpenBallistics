@@ -14,11 +14,14 @@ OpenBallistics is a system consisting of:
 
 - Point-mass 3DOF ballistic solver (RK4, G1/G7)
 - Multi-zone wind model (sustained + gusts)
-- ICAO atmospheric corrections
-- Spin drift, Coriolis, aerodynamic jump
-- Truing (V0 and BC correction)
+- ICAO atmospheric corrections, spin drift, Coriolis, aerodynamic jump
+- Truing (V0 and BC correction from observed impacts)
+- Rifle, ammunition and scope profiles with bullet/scope databases
+- Shot history with series timer, parameter logging and group analysis
+- Range card and trajectory charts
 - BLE integration with wind sensors (Calypso, WeatherFlow)
-- Garmin watch terminal with always-on display
+- Garmin watch terminal with always-on display and wind control
+- CLI tool for scripting and power users
 
 ## Tech Stack
 
