@@ -13,7 +13,13 @@ import kotlin.test.fail
 data class FixtureFile(val seed: Int, val fixtures: List<Fixture>)
 
 @Serializable
-data class Fixture(val id: Int, val caliber: String, val inputs: FixtureInputs, val checkpoints: List<Checkpoint>)
+data class Fixture(
+    val id: Int,
+    val caliber: String,
+    val inputs: FixtureInputs,
+    val checkpoints: List<Checkpoint>,
+    val gusts_checkpoints: List<Checkpoint> = emptyList()
+)
 
 @Serializable
 data class FixtureInputs(
@@ -33,6 +39,7 @@ data class FixtureInputs(
     val altitude_m: Double,
     val wind_clock: Int,
     val wind_speed_mps: Double,
+    val wind_gusts_mps: Double = 0.0,
     val slope_deg: Double,
     val cant_deg: Double,
     val latitude_deg: Double,
@@ -61,6 +68,7 @@ class FixtureTest {
     private fun fixtureToInput(f: FixtureInputs, maxDistance: Double): BallisticInput {
         val dragModel = if (f.drag_model == "G7") DragModel.G7 else DragModel.G1
         val twistDir = if (f.twist_direction == "RH") TwistDirection.RIGHT_HAND else TwistDirection.LEFT_HAND
+        val gustsSpeed = if (f.wind_gusts_mps > 0.0) f.wind_gusts_mps else f.wind_speed_mps
 
         return BallisticInput(
             zeroDistance = Distance(f.zero_distance_m),
@@ -83,7 +91,7 @@ class FixtureTest {
                     rangeEnd = Distance(maxDistance),
                     direction = ClockDirection(f.wind_clock),
                     sustained = Speed(f.wind_speed_mps),
-                    gusts = Speed(f.wind_speed_mps),
+                    gusts = Speed(gustsSpeed),
                     source = DataSource.MANUAL
                 )
             ),
@@ -100,8 +108,7 @@ class FixtureTest {
 
     @Test
     fun fixtureVelocityWithinTolerance() {
-        val fixtureFile = loadFixtures()
-        if (fixtureFile == null) {
+        val fixtureFile = loadFixtures() ?: run {
             println("fixtures.json not found, skipping fixture tests")
             return
         }
@@ -113,49 +120,66 @@ class FixtureTest {
         val windageTolerance = 0.01
 
         var totalCheckpoints = 0
-        val failures = mutableMapOf("velocity" to 0, "tof" to 0, "drop" to 0, "windage" to 0)
+        val failures = mutableMapOf(
+            "velocity" to 0, "tof" to 0, "drop" to 0, "windage" to 0,
+            "gusts_velocity" to 0, "gusts_tof" to 0, "gusts_drop" to 0, "gusts_windage" to 0
+        )
         val failureDetails = mutableListOf<String>()
 
         for (fixture in fixtureFile.fixtures) {
-            val maxDist = fixture.checkpoints.maxOf { it.distance_m }
+            val allCheckpoints = fixture.checkpoints + fixture.gusts_checkpoints
+            if (allCheckpoints.isEmpty()) continue
+            val maxDist = allCheckpoints.maxOf { it.distance_m }
             val input = fixtureToInput(fixture.inputs, maxDist)
-
             val solver = TrajectorySolver(input)
             val zeroAngle = solver.findZeroAngle(input.zeroDistance)
-            val trajectory = solver.computeTrajectory(Distance(maxDist), Distance(1.0), zeroAngle)
 
-            for (cp in fixture.checkpoints) {
-                totalCheckpoints++
+            fun verify(
+                checkpoints: List<Checkpoint>,
+                trajectory: List<TrajectoryPoint>,
+                prefix: String
+            ) {
+                for (cp in checkpoints) {
+                    totalCheckpoints++
+                    val nearest = trajectory.minByOrNull { abs(it.distance.meters - cp.distance_m) }
+                        ?: fail("F${fixture.id}(${fixture.caliber}): no trajectory point for ${prefix}checkpoint at ${cp.distance_m}m")
+                    if (abs(nearest.distance.meters - cp.distance_m) > 2.0) {
+                        fail("F${fixture.id}(${fixture.caliber}): nearest point ${nearest.distance.meters}m too far from ${prefix}checkpoint ${cp.distance_m}m")
+                    }
 
-                val nearest = trajectory.minByOrNull { abs(it.distance.meters - cp.distance_m) }
-                    ?: fail("F${fixture.id}(${fixture.caliber}): no trajectory point for checkpoint at ${cp.distance_m}m")
-                if (abs(nearest.distance.meters - cp.distance_m) > 2.0) {
-                    fail("F${fixture.id}(${fixture.caliber}): nearest point ${nearest.distance.meters}m too far from checkpoint ${cp.distance_m}m")
-                }
-
-                fun check(field: String, got: Double, expected: Double, tolerance: Double) {
-                    val diff = abs(got - expected)
-                    if (diff > tolerance) {
-                        failures[field] = (failures[field] ?: 0) + 1
-                        if (failureDetails.size < 15) {
-                            failureDetails.add(
-                                "F${fixture.id}(${fixture.caliber})@${cp.distance_m}m $field: " +
-                                    "exp=${"%.4f".format(expected)} got=${"%.4f".format(got)} Δ=${"%.4f".format(diff)}"
-                            )
+                    fun check(field: String, got: Double, expected: Double, tolerance: Double) {
+                        val diff = abs(got - expected)
+                        if (diff > tolerance) {
+                            val key = "$prefix$field"
+                            failures[key] = (failures[key] ?: 0) + 1
+                            if (failureDetails.size < 15) {
+                                failureDetails.add(
+                                    "F${fixture.id}(${fixture.caliber})@${cp.distance_m}m $key: " +
+                                        "exp=${"%.4f".format(expected)} got=${"%.4f".format(got)} Δ=${"%.4f".format(diff)}"
+                                )
+                            }
                         }
                     }
-                }
 
-                check("velocity", nearest.velocity.metersPerSecond, cp.velocity_mps, velocityTolerance)
-                val tofSec = nearest.timeOfFlight.toDouble(kotlin.time.DurationUnit.SECONDS)
-                check("tof", tofSec, cp.time_s, tofTolerance)
-                check("drop", nearest.drop.centimeters, cp.drop_cm, maxOf(dropTolerance, abs(cp.drop_cm) * 0.02))
-                check("windage", nearest.windage.centimeters, cp.windage_cm, maxOf(windageTolerance, abs(cp.windage_cm) * 0.02))
+                    check("velocity", nearest.velocity.metersPerSecond, cp.velocity_mps, velocityTolerance)
+                    val tofSec = nearest.timeOfFlight.toDouble(kotlin.time.DurationUnit.SECONDS)
+                    check("tof", tofSec, cp.time_s, tofTolerance)
+                    check("drop", nearest.drop.centimeters, cp.drop_cm, maxOf(dropTolerance, abs(cp.drop_cm) * 0.02))
+                    check("windage", nearest.windage.centimeters, cp.windage_cm, maxOf(windageTolerance, abs(cp.windage_cm) * 0.02))
+                }
+            }
+
+            val sustained = solver.computeTrajectory(Distance(maxDist), Distance(1.0), zeroAngle)
+            verify(fixture.checkpoints, sustained, "")
+
+            if (fixture.gusts_checkpoints.isNotEmpty()) {
+                val gusts = solver.computeTrajectoryGusts(Distance(maxDist), Distance(1.0), zeroAngle)
+                verify(fixture.gusts_checkpoints, gusts, "gusts_")
             }
         }
 
         println("Total checkpoints: $totalCheckpoints")
-        failures.forEach { (k, v) -> println("  $k failures: $v") }
+        failures.filter { it.value > 0 }.forEach { (k, v) -> println("  $k failures: $v") }
 
         if (failureDetails.isNotEmpty()) {
             println("\nFirst failures:")
@@ -163,10 +187,9 @@ class FixtureTest {
         }
 
         val totalFailures = failures.values.sum()
-        val totalChecks = totalCheckpoints * 4
         assertTrue(
             totalFailures == 0,
-            "$totalFailures of $totalChecks checks failed (${failures})"
+            "$totalFailures of ${totalCheckpoints * 4} checks failed ($failures)"
         )
     }
 }

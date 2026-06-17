@@ -2,7 +2,6 @@
 import json
 import os
 import random
-import sys
 from pathlib import Path
 
 from py_ballisticcalc import (
@@ -37,9 +36,9 @@ CALIBERS = [
         "weight_grains": 77.0,
         "diameter_mm": 5.56,
         "length_mm": 22.1,
-        "v0_options": [770.0, 810.0],
+        "v0_min": 750.0, "v0_max": 830.0,
         "max_range_m": 800,
-        "twist_options": [8.0, 7.0],
+        "twist_min": 7, "twist_max": 9,
     },
     {
         "name": ".308 Win",
@@ -48,9 +47,9 @@ CALIBERS = [
         "weight_grains": 175.0,
         "diameter_mm": 7.82,
         "length_mm": 31.5,
-        "v0_options": [760.0, 800.0],
+        "v0_min": 740.0, "v0_max": 820.0,
         "max_range_m": 1200,
-        "twist_options": [10.0, 11.25],
+        "twist_min": 10, "twist_max": 12,
     },
     {
         "name": "6.5 Creedmoor",
@@ -59,9 +58,9 @@ CALIBERS = [
         "weight_grains": 140.0,
         "diameter_mm": 6.71,
         "length_mm": 35.2,
-        "v0_options": [830.0, 870.0],
+        "v0_min": 810.0, "v0_max": 890.0,
         "max_range_m": 1200,
-        "twist_options": [8.0, 7.5],
+        "twist_min": 7, "twist_max": 9,
     },
     {
         "name": ".338 Lapua Mag",
@@ -70,30 +69,36 @@ CALIBERS = [
         "weight_grains": 300.0,
         "diameter_mm": 8.59,
         "length_mm": 43.2,
-        "v0_options": [800.0, 840.0],
+        "v0_min": 780.0, "v0_max": 860.0,
         "max_range_m": 2500,
-        "twist_options": [9.35, 10.0],
+        "twist_min": 9, "twist_max": 11,
     },
 ]
 
-WIND_CLOCKS = [2, 4, 7, 10]
-WIND_SPEEDS = [0.5, 3.0]
-TEMPERATURES = [-5.0, 30.0]
-PRESSURES = [950.0, 1030.0]
-HUMIDITIES = [25.0, 78.0]
-ALTITUDES = [200.0, 1400.0]
-SLOPES = [-8.0, 12.0]
-CANTS = [2.0, 7.0]
-LATITUDES = [15.0, 52.0]
-AZIMUTHS = [90.0, 270.0]
-DRAG_MODELS = ["G7", "G1"]
-
 
 def clock_to_degrees(clock: int) -> float:
-    # Spec §3.3: 12=headwind, 6=tailwind.  py-ballisticcalc: 0°=tailwind, 180°=headwind.
-    # Formula: py_degrees = ((clock - 6) * 30) % 360
-    # Verification: 12h→180° ✓  3h→270° ✓  6h→0° ✓  9h→90° ✓
     return float(((clock - 6) * 30) % 360)
+
+
+def random_params(rng: random.Random, caliber: dict) -> dict:
+    sustained = round(rng.uniform(0.2, 4.0), 1)
+    gusts = round(sustained * rng.uniform(1.0, 2.0), 1)
+    return {
+        "wind_clock": rng.randint(1, 12),
+        "wind_speed": sustained,
+        "wind_gusts": gusts,
+        "temperature": round(rng.uniform(-15, 40), 1),
+        "pressure": round(rng.uniform(920, 1060), 1),
+        "humidity": round(rng.uniform(5, 95), 1),
+        "altitude": round(rng.uniform(0, 2500)),
+        "slope": round(rng.uniform(-20, 20), 1),
+        "cant": round(rng.uniform(0.5, 10), 1),
+        "latitude": round(rng.uniform(-60, 70), 1),
+        "azimuth": round(rng.uniform(0, 359), 1),
+        "twist": float(rng.randint(caliber["twist_min"], caliber["twist_max"])),
+        "v0": round(rng.uniform(caliber["v0_min"], caliber["v0_max"]), 1),
+        "drag_model": rng.choice(["G7", "G1"]),
+    }
 
 
 def _build_drag_model(caliber: dict, drag_model_str: str) -> DragModel:
@@ -108,7 +113,30 @@ def _build_drag_model(caliber: dict, drag_model_str: str) -> DragModel:
     )
 
 
-def run_trajectory(caliber: dict, params: dict, rng: random.Random) -> tuple[list[dict], float, float]:
+def _extract_checkpoints(
+    result, rng: random.Random, num_checkpoints: int, step_m: int, min_distance: int = 200
+) -> list[dict]:
+    traj_by_m: dict[int, object] = {
+        round(p.distance >> Distance.Meter): p for p in result.trajectory
+    }
+    candidates = [d for d in traj_by_m if d >= min_distance and d % step_m == 0]
+    if not candidates:
+        return []
+    chosen = sorted(rng.sample(candidates, min(num_checkpoints, len(candidates))))
+    checkpoints = []
+    for d in chosen:
+        pt = traj_by_m[d]
+        checkpoints.append({
+            "distance_m": float(d),
+            "drop_cm": float(pt.height >> Distance.Centimeter),
+            "windage_cm": float(pt.windage >> Distance.Centimeter),
+            "velocity_mps": float(pt.velocity >> Velocity.MPS),
+            "time_s": float(pt.time),
+        })
+    return checkpoints
+
+
+def run_fixture(caliber: dict, params: dict, rng: random.Random) -> dict:
     dm = _build_drag_model(caliber, params["drag_model"])
     ammo = Ammo(dm=dm, mv=Velocity.MPS(params["v0"]))
     weapon = Weapon(
@@ -130,51 +158,47 @@ def run_trajectory(caliber: dict, params: dict, rng: random.Random) -> tuple[lis
         temperature=Temperature.Celsius(params["temperature"]),
         humidity=params["humidity"],
     )
-    wind = Wind(
-        velocity=Velocity.MPS(params["wind_speed"]),
-        direction_from=Angular.Degree(clock_to_degrees(params["wind_clock"])),
-    )
-    shot = Shot(
-        weapon=weapon,
-        ammo=ammo,
-        atmo=current_atmo,
-        winds=[wind],
-        look_angle=Angular.Degree(params["slope"]),
-        cant_angle=Angular.Degree(params["cant"]),
-        latitude=params["latitude"],
-        azimuth=params["azimuth"],
-    )
+    wind_dir = Angular.Degree(clock_to_degrees(params["wind_clock"]))
 
     step_m = int(os.environ.get("FIXTURE_STEP", "25"))
     num_checkpoints = int(os.environ.get("FIXTURE_CHECKPOINTS", "3"))
+    num_gusts_checkpoints = max(1, num_checkpoints // 2)
+    max_range = Distance.Meter(caliber["max_range_m"])
 
-    result = calc.fire(
-        shot,
-        trajectory_range=Distance.Meter(caliber["max_range_m"]),
-        trajectory_step=Distance.Meter(step_m),
+    sustained_wind = Wind(velocity=Velocity.MPS(params["wind_speed"]), direction_from=wind_dir)
+    sustained_shot = Shot(
+        weapon=weapon, ammo=ammo, atmo=current_atmo,
+        winds=[sustained_wind],
+        look_angle=Angular.Degree(params["slope"]),
+        cant_angle=Angular.Degree(params["cant"]),
+        latitude=params["latitude"], azimuth=params["azimuth"],
     )
+    sustained_result = calc.fire(
+        sustained_shot, trajectory_range=max_range,
+        trajectory_step=Distance.Meter(step_m), raise_range_error=False,
+    )
+    checkpoints = _extract_checkpoints(sustained_result, rng, num_checkpoints, step_m)
 
-    traj_by_m: dict[int, object] = {
-        round(p.distance >> Distance.Meter): p for p in result.trajectory
+    gusts_wind = Wind(velocity=Velocity.MPS(params["wind_gusts"]), direction_from=wind_dir)
+    gusts_shot = Shot(
+        weapon=weapon, ammo=ammo, atmo=current_atmo,
+        winds=[gusts_wind],
+        look_angle=Angular.Degree(params["slope"]),
+        cant_angle=Angular.Degree(params["cant"]),
+        latitude=params["latitude"], azimuth=params["azimuth"],
+    )
+    gusts_result = calc.fire(
+        gusts_shot, trajectory_range=max_range,
+        trajectory_step=Distance.Meter(step_m), raise_range_error=False,
+    )
+    gusts_checkpoints = _extract_checkpoints(gusts_result, rng, num_gusts_checkpoints, step_m)
+
+    return {
+        "checkpoints": checkpoints,
+        "gusts_checkpoints": gusts_checkpoints,
+        "zero_angle_rad": zero_angle_rad,
+        "stability_coefficient": stability_coefficient,
     }
-    candidates = [d for d in traj_by_m if d >= 50]
-    chosen = sorted(rng.sample(candidates, min(num_checkpoints, len(candidates))))
-
-    checkpoints = []
-    for d in chosen:
-        pt = traj_by_m[d]
-        drop_cm = float(pt.height >> Distance.Centimeter)
-        windage_cm = float(pt.windage >> Distance.Centimeter)
-        velocity_mps = float(pt.velocity >> Velocity.MPS)
-        time_s = float(pt.time)
-        checkpoints.append({
-            "distance_m": float(d),
-            "drop_cm": drop_cm,
-            "windage_cm": windage_cm,
-            "velocity_mps": velocity_mps,
-            "time_s": time_s,
-        })
-    return checkpoints, zero_angle_rad, stability_coefficient
 
 
 def build_inputs(caliber: dict, params: dict) -> dict:
@@ -197,6 +221,7 @@ def build_inputs(caliber: dict, params: dict) -> dict:
         "altitude_m": params["altitude"],
         "wind_clock": params["wind_clock"],
         "wind_speed_mps": params["wind_speed"],
+        "wind_gusts_mps": params["wind_gusts"],
         "slope_deg": params["slope"],
         "cant_deg": params["cant"],
         "latitude_deg": params["latitude"],
@@ -217,40 +242,26 @@ def main() -> None:
 
     for fixture_id in range(TARGET_COUNT):
         caliber = rng.choice(CALIBERS)
-        params = {
-            "wind_clock": rng.choice(WIND_CLOCKS),
-            "wind_speed": rng.choice(WIND_SPEEDS),
-            "temperature": rng.choice(TEMPERATURES),
-            "pressure": rng.choice(PRESSURES),
-            "humidity": rng.choice(HUMIDITIES),
-            "altitude": rng.choice(ALTITUDES),
-            "slope": rng.choice(SLOPES),
-            "cant": rng.choice(CANTS),
-            "latitude": rng.choice(LATITUDES),
-            "azimuth": rng.choice(AZIMUTHS),
-            "twist": rng.choice(caliber["twist_options"]),
-            "v0": rng.choice(caliber["v0_options"]),
-            "drag_model": rng.choice(DRAG_MODELS),
-        }
-
-        checkpoints, zero_angle_rad, stability_coefficient = run_trajectory(caliber, params, rng)
-        fixtures.append(
-            {
-                "id": fixture_id,
-                "caliber": caliber["name"],
-                "inputs": build_inputs(caliber, params),
-                "zero_angle_rad": zero_angle_rad,
-                "stability_coefficient": stability_coefficient,
-                "checkpoints": checkpoints,
-            }
-        )
+        params = random_params(rng, caliber)
+        result = run_fixture(caliber, params, rng)
+        fixtures.append({
+            "id": fixture_id,
+            "caliber": caliber["name"],
+            "inputs": build_inputs(caliber, params),
+            "zero_angle_rad": result["zero_angle_rad"],
+            "stability_coefficient": result["stability_coefficient"],
+            "checkpoints": result["checkpoints"],
+            "gusts_checkpoints": result["gusts_checkpoints"],
+        })
 
     OUTPUT_PATH.parent.mkdir(parents=True, exist_ok=True)
     with OUTPUT_PATH.open("w", encoding="utf-8") as fh:
         json.dump({"seed": seed, "fixtures": fixtures}, fh, indent=2)
         fh.write("\n")
 
-    print(f"Generated {len(fixtures)} fixtures → {OUTPUT_PATH}")
+    total_sustained = sum(len(f["checkpoints"]) for f in fixtures)
+    total_gusts = sum(len(f["gusts_checkpoints"]) for f in fixtures)
+    print(f"Generated {len(fixtures)} fixtures ({total_sustained} sustained + {total_gusts} gusts checkpoints) → {OUTPUT_PATH}")
 
 
 if __name__ == "__main__":
