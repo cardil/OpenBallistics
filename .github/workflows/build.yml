@@ -34,8 +34,8 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
 
-       - name: Build
-         run: ./gradlew build -x test -x jvmTest -x generateFixtures -x setupFixturesVenv -x installFixturesDeps
+      - name: Build
+        run: ./gradlew build -x test -x jvmTest -x generateFixtures -x setupFixturesVenv -x installFixturesDeps
 
       - name: Test
         run: ./gradlew :core:jvmTest
