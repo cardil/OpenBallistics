@@ -128,10 +128,10 @@ def _extract_checkpoints(
         pt = traj_by_m[d]
         checkpoints.append({
             "distance_m": float(d),
-            "drop_cm": float(pt.height >> Distance.Centimeter),
-            "windage_cm": float(pt.windage >> Distance.Centimeter),
-            "velocity_mps": float(pt.velocity >> Velocity.MPS),
-            "time_s": float(pt.time),
+            "drop_cm": round(float(pt.height >> Distance.Centimeter), 6),
+            "windage_cm": round(float(pt.windage >> Distance.Centimeter), 6),
+            "velocity_mps": round(float(pt.velocity >> Velocity.MPS), 6),
+            "time_s": round(float(pt.time), 6),
         })
     return checkpoints
 
@@ -149,8 +149,6 @@ def run_fixture(caliber: dict, params: dict, rng: random.Random) -> dict:
     calc.set_weapon_zero(zero_shot, Distance.Meter(100))
 
     zero_angle_rad = float(weapon.zero_elevation >> Angular.Radian)
-    props = ShotProps.from_shot(zero_shot)
-    stability_coefficient = float(props.stability_coefficient)
 
     current_atmo = Atmo(
         altitude=Distance.Meter(params["altitude"]),
@@ -173,6 +171,9 @@ def run_fixture(caliber: dict, params: dict, rng: random.Random) -> dict:
         cant_angle=Angular.Degree(params["cant"]),
         latitude=params["latitude"], azimuth=params["azimuth"],
     )
+    props = ShotProps.from_shot(sustained_shot)
+    stability_coefficient = float(props.stability_coefficient)
+
     sustained_result = calc.fire(
         sustained_shot, trajectory_range=max_range,
         trajectory_step=Distance.Meter(step_m), raise_range_error=False,
@@ -196,8 +197,8 @@ def run_fixture(caliber: dict, params: dict, rng: random.Random) -> dict:
     return {
         "checkpoints": checkpoints,
         "gusts_checkpoints": gusts_checkpoints,
-        "zero_angle_rad": zero_angle_rad,
-        "stability_coefficient": stability_coefficient,
+        "zero_angle_rad": round(zero_angle_rad, 6),
+        "stability_coefficient": round(stability_coefficient, 6),
     }
 
 

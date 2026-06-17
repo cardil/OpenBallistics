@@ -18,7 +18,9 @@ data class Fixture(
     val caliber: String,
     val inputs: FixtureInputs,
     val checkpoints: List<Checkpoint>,
-    val gusts_checkpoints: List<Checkpoint> = emptyList()
+    val gusts_checkpoints: List<Checkpoint> = emptyList(),
+    val zero_angle_rad: Double = 0.0,
+    val stability_coefficient: Double = 0.0
 )
 
 @Serializable
@@ -119,6 +121,11 @@ class FixtureTest {
         val dropTolerance = 0.01
         val windageTolerance = 0.01
 
+        val reportDir = java.io.File("build/reports/tests")
+        reportDir.mkdirs()
+        val csv = java.io.PrintWriter(java.io.File(reportDir, "parity.csv").bufferedWriter())
+        csv.println("fixture_id,caliber,type,distance_m,field,expected,got,delta")
+
         var totalCheckpoints = 0
         val failures = mutableMapOf(
             "velocity" to 0, "tof" to 0, "drop" to 0, "windage" to 0,
@@ -134,6 +141,38 @@ class FixtureTest {
             val solver = TrajectorySolver(input)
             val zeroAngle = solver.findZeroAngle(input.zeroDistance)
 
+            if (fixture.zero_angle_rad != 0.0) {
+                val zaDiff = abs(zeroAngle - fixture.zero_angle_rad)
+                csv.println("${fixture.id},${fixture.caliber},sustained,0.0,zero_angle,${fixture.zero_angle_rad},$zeroAngle,$zaDiff")
+                if (zaDiff > 1e-6) {
+                    failures["zero_angle"] = (failures["zero_angle"] ?: 0) + 1
+                    if (failureDetails.size < 15) {
+                        failureDetails.add(
+                            "F${fixture.id}(${fixture.caliber}) zero_angle: " +
+                                "exp=${"%.8f".format(fixture.zero_angle_rad)} got=${"%.8f".format(zeroAngle)} Δ=${"%.8f".format(zaDiff)}"
+                        )
+                    }
+                }
+            }
+
+            if (fixture.stability_coefficient != 0.0) {
+                val sg = StabilityFactor.compute(
+                    input.twistRate, input.bulletDiameter, input.bulletLength,
+                    input.bulletWeight, input.muzzleVelocity, input.atmosphere
+                )
+                val sgDiff = abs(sg - fixture.stability_coefficient)
+                csv.println("${fixture.id},${fixture.caliber},sustained,0.0,stability,${"%.6f".format(fixture.stability_coefficient)},${"%.6f".format(sg)},$sgDiff")
+                if (sgDiff > 1e-4) {
+                    failures["stability"] = (failures["stability"] ?: 0) + 1
+                    if (failureDetails.size < 15) {
+                        failureDetails.add(
+                            "F${fixture.id}(${fixture.caliber}) stability: " +
+                                "exp=${"%.6f".format(fixture.stability_coefficient)} got=${"%.6f".format(sg)} Δ=${"%.6f".format(sgDiff)}"
+                        )
+                    }
+                }
+            }
+
             fun verify(
                 checkpoints: List<Checkpoint>,
                 trajectory: List<TrajectoryPoint>,
@@ -147,8 +186,11 @@ class FixtureTest {
                         fail("F${fixture.id}(${fixture.caliber}): nearest point ${nearest.distance.meters}m too far from ${prefix}checkpoint ${cp.distance_m}m")
                     }
 
+                    val trajType = if (prefix.isEmpty()) "sustained" else "gusts"
+
                     fun check(field: String, got: Double, expected: Double, tolerance: Double) {
                         val diff = abs(got - expected)
+                        csv.println("${fixture.id},${fixture.caliber},$trajType,${cp.distance_m},$field,$expected,$got,$diff")
                         if (diff > tolerance) {
                             val key = "$prefix$field"
                             failures[key] = (failures[key] ?: 0) + 1
@@ -178,7 +220,9 @@ class FixtureTest {
             }
         }
 
+        csv.close()
         println("Total checkpoints: $totalCheckpoints")
+        println("Parity report: ${reportDir.resolve("parity.csv").absolutePath}")
         failures.filter { it.value > 0 }.forEach { (k, v) -> println("  $k failures: $v") }
 
         if (failureDetails.isNotEmpty()) {
