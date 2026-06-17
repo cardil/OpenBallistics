@@ -72,10 +72,10 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
 
-      - name: Extended fixture test (1000 fixtures × 5 checkpoints)
+      - name: Extended fixture test (4000 fixtures × 5 checkpoints)
         run: ./gradlew :core:jvmTest --tests '*FixtureTest*'
         env:
-          FIXTURE_COUNT: 1000
+          FIXTURE_COUNT: 4000
           FIXTURE_CHECKPOINTS: 5
 
       - name: Upload test results
