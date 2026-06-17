@@ -160,7 +160,7 @@ def run_fixture(caliber: dict, params: dict, rng: random.Random) -> dict:
     )
     wind_dir = Angular.Degree(clock_to_degrees(params["wind_clock"]))
 
-    step_m = int(os.environ.get("FIXTURE_STEP", "25"))
+    step_m = 50
     num_checkpoints = int(os.environ.get("FIXTURE_CHECKPOINTS", "3"))
     num_gusts_checkpoints = max(1, num_checkpoints // 2)
     max_range = Distance.Meter(caliber["max_range_m"])

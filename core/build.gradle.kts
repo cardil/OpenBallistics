@@ -64,7 +64,7 @@ val generateFixtures by tasks.registering(Exec::class) {
         fixturesDir.resolve("generate.py").absolutePath
     )
 
-    listOf("FIXTURE_COUNT", "FIXTURE_CHECKPOINTS", "FIXTURE_SEED", "FIXTURE_STEP").forEach { key ->
+    listOf("FIXTURE_COUNT", "FIXTURE_CHECKPOINTS", "FIXTURE_SEED").forEach { key ->
         System.getenv(key)?.let { environment(key, it) }
     }
 }
