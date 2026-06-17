@@ -108,15 +108,16 @@ class TrajectorySolver(private val input: BallisticInput) {
         return integrate(maxRange, step, zeroAngleRad, useGusts = true)
     }
 
-    private fun integrate(
-        maxRange: Distance,
-        step: Distance,
-        zeroAngleRad: Double,
-        useGusts: Boolean
-    ): List<TrajectoryPoint> {
-        val points = mutableListOf<TrajectoryPoint>()
-        val maxX = maxRange.meters
-        val stepX = step.meters
+     private fun integrate(
+         maxRange: Distance,
+         step: Distance,
+         zeroAngleRad: Double,
+         useGusts: Boolean
+     ): List<TrajectoryPoint> {
+         val stepX = step.meters
+         require(stepX > 0.0) { "Step distance must be positive" }
+         val points = mutableListOf<TrajectoryPoint>()
+         val maxX = maxRange.meters
         var nextRecordX = 0.0
 
         val barrelElevation = slopeRad + cos(cantRad) * zeroAngleRad

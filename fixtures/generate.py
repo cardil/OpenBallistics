@@ -17,7 +17,6 @@ from py_ballisticcalc import (
     TableG1,
     TableG7,
     Temperature,
-    Time,
     Velocity,
     Weapon,
     Weight,
@@ -167,11 +166,7 @@ def run_trajectory(caliber: dict, params: dict, rng: random.Random) -> tuple[lis
         drop_cm = float(pt.height >> Distance.Centimeter)
         windage_cm = float(pt.windage >> Distance.Centimeter)
         velocity_mps = float(pt.velocity >> Velocity.MPS)
-        time_val = pt.time
-        if hasattr(time_val, '__rshift__'):
-            time_s = float(time_val >> Time.Second)
-        else:
-            time_s = float(time_val)
+        time_s = float(pt.time)
         checkpoints.append({
             "distance_m": float(d),
             "drop_cm": drop_cm,

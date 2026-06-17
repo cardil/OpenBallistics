@@ -47,6 +47,5 @@ object WindDecomposition {
 
     private fun zoneAt(zones: List<WindZone>, rangeMeters: Double): WindZone? {
         return zones.firstOrNull { rangeMeters >= it.rangeStart.meters && rangeMeters < it.rangeEnd.meters }
-            ?: zones.lastOrNull()
     }
 }

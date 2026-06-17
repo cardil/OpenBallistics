@@ -44,10 +44,10 @@ object BallisticEngine {
             crosswindMps, sg, input.muzzleVelocity.metersPerSecond, input.twistRate.direction
         )
 
-        val elevation = dropToAngular(dropM, distM) + AngularValue.fromRadians(ajRad)
-        val windage = dropToAngular(windageM, distM)
-        val elevationGusts = dropToAngular(gustsDropM, distM) + AngularValue.fromRadians(ajRad)
-        val windageGusts = dropToAngular(gustsWindageM, distM)
+         val elevation = dropToAngular(dropM, distM) + AngularValue.fromRadians(ajRad)
+         val windage = dropToAngular(windageM, distM)
+         val elevationGusts = dropToAngular(gustsDropM, gustsDistM) + AngularValue.fromRadians(ajRad)
+         val windageGusts = dropToAngular(gustsWindageM, gustsDistM)
 
         val rangeTable = sustained.map { pt ->
             val d = pt.distance.meters

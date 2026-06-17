@@ -171,9 +171,10 @@ object ProfileLoader {
             )
         }
         val parts = windSpec.split(":")
-        val clock = parts[0].toInt()
-        val sustained = parts[1].toDouble()
-        val gusts = if (parts.size > 2) parts[2].toDouble() else sustained
+        require(parts.size >= 2) { "Wind spec must be clock:speed[:gusts], got: $windSpec" }
+        val clock = parts[0].toIntOrNull() ?: error("Invalid clock value in wind spec: $windSpec")
+        val sustained = parts[1].toDoubleOrNull() ?: error("Invalid wind speed in wind spec: $windSpec")
+        val gusts = if (parts.size > 2) parts[2].toDoubleOrNull() ?: error("Invalid gust speed in wind spec: $windSpec") else sustained
         return listOf(
             WindZone(
                 rangeStart = Distance.ZERO,

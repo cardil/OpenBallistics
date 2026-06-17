@@ -128,8 +128,9 @@ class FixtureTest {
                 totalCheckpoints++
 
                 val nearest = trajectory.minByOrNull { abs(it.distance.meters - cp.distance_m) }
-                if (nearest == null || abs(nearest.distance.meters - cp.distance_m) > 2.0) {
-                    continue
+                    ?: fail("F${fixture.id}(${fixture.caliber}): no trajectory point for checkpoint at ${cp.distance_m}m")
+                if (abs(nearest.distance.meters - cp.distance_m) > 2.0) {
+                    fail("F${fixture.id}(${fixture.caliber}): nearest point ${nearest.distance.meters}m too far from checkpoint ${cp.distance_m}m")
                 }
 
                 fun check(field: String, got: Double, expected: Double, tolerance: Double) {

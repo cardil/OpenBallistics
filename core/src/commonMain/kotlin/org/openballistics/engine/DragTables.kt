@@ -98,19 +98,20 @@ object DragTables {
     internal const val DRAG_CONSTANT = 1461.5130112059
 
     fun effectiveBc(bc: BallisticCoefficient, velocityMps: Double): Double {
-        return when (bc) {
-            is BallisticCoefficient.Single -> bc.value
-            is BallisticCoefficient.Segmented -> {
-                val segments = bc.segments.sortedByDescending { it.velocity.metersPerSecond }
-                for (seg in segments) {
-                    if (velocityMps >= seg.velocity.metersPerSecond) {
-                        return seg.bc
-                    }
-                }
-                segments.last().bc
-            }
-        }
-    }
+         return when (bc) {
+             is BallisticCoefficient.Single -> bc.value
+             is BallisticCoefficient.Segmented -> {
+                 require(bc.segments.isNotEmpty()) { "Segmented BC requires at least one segment" }
+                 val segments = bc.segments.sortedByDescending { it.velocity.metersPerSecond }
+                 for (seg in segments) {
+                     if (velocityMps >= seg.velocity.metersPerSecond) {
+                         return seg.bc
+                     }
+                 }
+                 segments.last().bc
+             }
+         }
+     }
 
     private class PchipInterpolator(private val xs: DoubleArray, private val ys: DoubleArray) {
         private val slopes: DoubleArray = computeSlopes()

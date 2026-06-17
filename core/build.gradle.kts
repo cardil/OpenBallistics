@@ -38,16 +38,17 @@ val setupFixturesVenv by tasks.registering(Exec::class) {
 }
 
 val installFixturesDeps by tasks.registering(Exec::class) {
-    description = "Install py-ballisticcalc in fixtures venv"
-    group = "verification"
-    dependsOn(setupFixturesVenv)
-    onlyIf { !fixturesVenvDir.resolve("lib").exists() || setupFixturesVenv.get().didWork }
-    commandLine(
-        fixturesVenvDir.resolve("bin/pip").absolutePath,
-        "install", "-q", "-r",
-        fixturesDir.resolve("requirements.txt").absolutePath
-    )
-}
+     description = "Install py-ballisticcalc in fixtures venv"
+     group = "verification"
+     dependsOn(setupFixturesVenv)
+     inputs.file(fixturesDir.resolve("requirements.txt"))
+     outputs.dir(fixturesVenvDir.resolve("lib"))
+     commandLine(
+         fixturesVenvDir.resolve("bin/pip").absolutePath,
+         "install", "-q", "-r",
+         fixturesDir.resolve("requirements.txt").absolutePath
+     )
+ }
 
 val generateFixtures by tasks.registering(Exec::class) {
     description = "Generate ballistic test fixtures using py-ballisticcalc"
