@@ -23,6 +23,13 @@ kotlin {
             implementation(libs.kotlin.test)
             implementation(libs.kotlinx.serialization.json)
         }
+        val jvmTest by getting {
+            dependencies {
+                implementation(kotlin("test-junit5"))
+                implementation("org.junit.jupiter:junit-jupiter:5.11.4")
+                runtimeOnly("org.junit.jupiter:junit-jupiter-engine:5.11.4")
+            }
+        }
     }
 }
 
@@ -55,7 +62,7 @@ val generateFixtures by tasks.registering(Exec::class) {
     group = "verification"
     dependsOn(installFixturesDeps)
 
-    outputs.upToDateWhen { false }
+    onlyIf { System.getenv("SKIP_FIXTURE_GEN") == null }
 
     doFirst { fixturesOutputFile.parentFile.mkdirs() }
 
@@ -69,6 +76,12 @@ val generateFixtures by tasks.registering(Exec::class) {
     }
 }
 
-tasks.named("jvmTest") {
+tasks.named<Test>("jvmTest") {
     dependsOn(generateFixtures)
+    useJUnitPlatform()
+    testLogging {
+        showStandardStreams = true
+        exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
+        showCauses = true
+    }
 }

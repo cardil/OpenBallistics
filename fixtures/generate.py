@@ -116,10 +116,13 @@ def _build_drag_model(caliber: dict, drag_model_str: str) -> DragModel:
 def _extract_checkpoints(
     result, rng: random.Random, num_checkpoints: int, step_m: int, min_distance: int = 200
 ) -> list[dict]:
-    traj_by_m: dict[int, object] = {
-        round(p.distance >> Distance.Meter): p for p in result.trajectory
-    }
-    candidates = [d for d in traj_by_m if d >= min_distance and d % step_m == 0]
+    traj_by_m: dict[int, object] = {}
+    for p in result.trajectory:
+        dist = float(p.distance >> Distance.Meter)
+        rounded = round(dist)
+        if abs(dist - rounded) < 0.01 and rounded % step_m == 0:
+            traj_by_m[rounded] = p
+    candidates = [d for d in traj_by_m if d >= min_distance]
     if not candidates:
         return []
     chosen = sorted(rng.sample(candidates, min(num_checkpoints, len(candidates))))
