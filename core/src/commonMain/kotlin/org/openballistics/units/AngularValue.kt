@@ -10,7 +10,13 @@ data class AngularValue(val milliradians: Double) {
     val moa: Double get() = milliradians / MRAD_PER_MOA
     val radians: Double get() = milliradians / MRAD_PER_RADIAN
 
+    operator fun plus(other: AngularValue): AngularValue = AngularValue(milliradians + other.milliradians)
+    operator fun minus(other: AngularValue): AngularValue = AngularValue(milliradians - other.milliradians)
+    operator fun times(scalar: Double): AngularValue = AngularValue(milliradians * scalar)
+    operator fun unaryMinus(): AngularValue = AngularValue(-milliradians)
+
     companion object {
+        val ZERO = AngularValue(0.0)
         fun fromMoa(moa: Double): AngularValue = AngularValue(moa * MRAD_PER_MOA)
         fun fromRadians(radians: Double): AngularValue = AngularValue(radians * MRAD_PER_RADIAN)
     }

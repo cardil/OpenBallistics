@@ -5,6 +5,9 @@ compose-bom = "2026.05.01"
 activity-compose = "1.10.1"
 navigation-compose = "2.9.0"
 lifecycle = "2.9.1"
+kotlinx-serialization = "1.8.1"
+clikt = "5.0.3"
+ktoml = "0.6.0"
 
 [libraries]
 compose-bom = { group = "androidx.compose", name = "compose-bom", version.ref = "compose-bom" }
@@ -18,6 +21,10 @@ activity-compose = { group = "androidx.activity", name = "activity-compose", ver
 navigation-compose = { group = "androidx.navigation", name = "navigation-compose", version.ref = "navigation-compose" }
 lifecycle-runtime-compose = { group = "androidx.lifecycle", name = "lifecycle-runtime-compose", version.ref = "lifecycle" }
 kotlin-test = { group = "org.jetbrains.kotlin", name = "kotlin-test" }
+kotlinx-serialization-json = { group = "org.jetbrains.kotlinx", name = "kotlinx-serialization-json", version.ref = "kotlinx-serialization" }
+clikt = { group = "com.github.ajalt.clikt", name = "clikt", version.ref = "clikt" }
+ktoml-core = { group = "com.akuleshov7", name = "ktoml-core", version.ref = "ktoml" }
+ktoml-file = { group = "com.akuleshov7", name = "ktoml-file", version.ref = "ktoml" }
 
 [plugins]
 kotlin-multiplatform = { id = "org.jetbrains.kotlin.multiplatform", version.ref = "kotlin" }
@@ -26,3 +33,4 @@ kotlin-compose-compiler = { id = "org.jetbrains.kotlin.plugin.compose", version.
 android-application = { id = "com.android.application", version.ref = "agp" }
 android-library = { id = "com.android.library", version.ref = "agp" }
 android-kmp-library = { id = "com.android.kotlin.multiplatform.library", version.ref = "agp" }
+kotlin-serialization = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref = "kotlin" }

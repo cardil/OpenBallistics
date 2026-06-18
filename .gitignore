@@ -10,3 +10,13 @@ local.properties
 # IDE
 .idea/
 *.iml
+
+# Python fixtures venv
+fixtures/.venv/
+
+# Generated test fixtures (regenerated on each test run)
+core/src/commonTest/resources/fixtures.json
+
+# Kotlin
+.kotlin/
+__pycache__/
